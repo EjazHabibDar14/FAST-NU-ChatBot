@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chatbot</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .chatbox {
+            border: 1px solid #ccc;
+            padding: 10px;
+            height: 400px;
+            overflow-y: scroll;
+        }
+        .message {
+            margin-bottom: 10px;
+        }
+        .user-message {
+            color: #007bff;
+        }
+        .bot-message {
+            color: #28a745;
+        }
+    </style>
+</head>
+<body>
+    <h1>Chatbot</h1>
+    <div class="chatbox" id="chatbox">
+        <!-- Chat messages will be displayed here -->
+    </div>
+    <div>
+        <input type="text" id="user-id" placeholder="User ID">
+        <input type="text" id="user-name" placeholder="Name">
+        <input type="text" id="input-message" placeholder="Type your message...">
+        <button onclick="sendMessage()">Send</button>
+    </div>
+
+    <script>
+        const chatbox = document.getElementById("chatbox");
+        const userIdInput = document.getElementById("user-id");
+        const userNameInput = document.getElementById("user-name");
+        const inputMessage = document.getElementById("input-message");
+
+        function addMessage(message, isUser) {
+            const messageClass = isUser ? "user-message" : "bot-message";
+            const div = document.createElement("div");
+            div.classList.add("message", messageClass);
+            div.textContent = message;
+            chatbox.appendChild(div);
+        }
+
+        function sendMessage() {
+            const user_id = userIdInput.value;
+            const name = userNameInput.value;
+            const question = inputMessage.value;
+            userIdInput.value = "";
+            userNameInput.value = "";
+            inputMessage.value = "";
+            addMessage("You: " + question, true);
+
+            // Make an API call to the backend to get the response
+            fetch("/Chat_me", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    user_id: user_id,
+                    name: name,
+                    question: question
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                const answer = data.response;
+                addMessage("Chatbot: " + answer, false);
+            })
+            .catch(error => {
+                console.error("Error:", error);
+                addMessage("Chatbot: Oops! Something went wrong.", false);
+            });
+        }
+    </script>
+</body>
+</html>
