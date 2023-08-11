@@ -43,18 +43,16 @@ memory = ConversationBufferMemory(memory_key="chat_history", return_messages=Tru
 repo_id="google/flan-t5-small"
 qa = ConversationalRetrievalChain.from_llm(
     HuggingFaceHub(
-    repo_id=repo_id, model_kwargs={"temperature": 0.5, "max_length":512, "min_length": 8}
+    repo_id=repo_id, model_kwargs={"temperature": 0, "max_length":512}
     ), vector_store.as_retriever(), memory=memory)
 
 def get_file_name(user_id, name):
     return f"{user_id}_{name}.txt"
 
-# Function to check if a user with the given ID and name already exists
 def user_exists(user_id, name):
     file_name = get_file_name(user_id, name)
     return os.path.exists(file_name)
 
-# Function to get the user's name based on the user ID
 def get_user_name(user_id):
     for file_name in os.listdir():
         if file_name.startswith(f"{user_id}_"):
@@ -62,6 +60,16 @@ def get_user_name(user_id):
     return None
 
 app = FastAPI()
+
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],  # Adjust this to your frontend URL
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 class ChatHistoryItem(BaseModel):
@@ -89,36 +97,55 @@ def load_chat_history(file_path: str) -> List[ChatHistoryItem]:
                     print(f"Invalid line in file '{file_path}': {line}")
     return chat_history
 
-from fastapi.templating import Jinja2Templates
-templates = Jinja2Templates(directory="templates")
+# from fastapi.templating import Jinja2Templates
+# templates = Jinja2Templates(directory="templates")
 
 
-# @app.get("/chat_me/", response_model=List[ChatHistoryItem])
-# async def get_all_chat_history():
-#     all_chat_history = []
-#     for file_name in os.listdir():
-#         if file_name.endswith(".txt"):
-#             all_chat_history.extend(load_chat_history(file_name))
-#     return all_chat_history
+# @app.get("/")
+# async def index(request: Request):
+#     return templates.TemplateResponse("index.html", {"request": request})
 
-# @app.get("/chat_me/{user_id}", response_model=List[ChatHistoryItem])
-# async def get_user_chat_history(user_id: str):
-#     user_chat_history = []
-#     for file_name in os.listdir():
-#         if file_name.endswith(".txt") and file_name.startswith(f"{user_id}_"):
-#             user_chat_history.extend(load_chat_history(file_name))
-#     return user_chat_history
+@app.get("/chat_me/", response_model=List[ChatHistoryItem])
+async def get_all_chat_history():
+    all_chat_history = []
+    for file_name in os.listdir():
+        if file_name.endswith(".txt"):
+            all_chat_history.extend(load_chat_history(file_name))
+    return all_chat_history
+
+@app.get("/chat_me/{user_id}", response_model=List[ChatHistoryItem])
+async def get_user_chat_history(user_id: str):
+    user_chat_history = []
+    for file_name in os.listdir():
+        if file_name.endswith(".txt") and file_name.startswith(f"{user_id}_"):
+            user_chat_history.extend(load_chat_history(file_name))
+    return user_chat_history
+
+@app.get("/check_user/{user_id}/{name}", response_model=dict)
+def check_user(user_id: str, name: str):
+    actual_id = get_user_name(user_id)
+
+    if actual_id is None:
+        # New id, user ID doesn't exist
+        return {"exists": False, "idMatches": False, "canChat": True}
+    
+    if actual_id == name:
+        # id exists and name matches
+        return {"exists": True, "idMatches": True, "canChat": True}
+    else:
+        # id exists but name doesn't match
+        return {"exists": True, "idMatches": False, "canChat": False}
 
 
 
-@app.get("/")
-async def index(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
 
 class ChatRequest(BaseModel):
     user_id: str
     name: str
     question: str
+
+class ChatResponse(BaseModel):
+    answer: str
 
 def load_user_records():
     user_records = {}
@@ -132,32 +159,30 @@ def load_user_records():
 # Check for existing files and populate user_records dictionary
 user_records = load_user_records()
 
-
-@app.post("/Chat_me")
+@app.post("/Chat_me", response_model=ChatResponse)
 def chat_me(request: ChatRequest):
     user_id = request.user_id
     name = request.name
     question = request.question
 
+    if question.lower() == "quit":
+        return Response(content="You have left the chat. Type 'Start Chat' again to start a new chat session.", media_type="text/plain")
     # Check if the user ID already exists
     if user_id in user_records:
         if user_records[user_id] == name:
             # User with the same ID and name exists, append chat to the existing file
             file_name = get_file_name(user_id, name)
             chat_history = load_chat_history(file_name)
-            print("ila")
         else:
             # User ID exists but with a different name, return an error response
-            print("lol")
             raise HTTPException(status_code=400, detail="User ID already belongs to another user.")
     else:
         # New user, create a new file and add to user_records dictionary
         chat_history = []
-    print("hehe")
+        user_records[user_id] = name
 
     result = qa({'question': question, 'chat_history': chat_history})
     answer = result['answer']
-    print(answer)
     chat_history.append((question, answer))
 
     # Append the chat history to the user-specific file or create a new file
@@ -165,7 +190,4 @@ def chat_me(request: ChatRequest):
     with open(file_name, "a") as file1:
         file1.write('question: "' + question + '" answer: "' + answer + '"\n')
 
-    # Update the user_records dictionary with the new user entry
-    user_records[user_id] = name
-
-    return {"response":answer}
+    return JSONResponse(content={"response": answer})
